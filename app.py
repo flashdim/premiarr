@@ -81,6 +81,37 @@ def _get_text(node: dict, key: str) -> list[str]:
     return [str(val)]
 
 
+def _extract_episode_text(node: dict, key: str) -> str | None:
+    """
+    Extract text from a node that may be a plain string,
+    a dict with #text/@text, or a list of mixed types.
+    """
+    val = node.get(key)
+    if val is None:
+        return None
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict):
+        # xmltodict parses <episode system="...">01</episode> as
+        # {"#text": "01", "@system": "..."} or {"@system": "...", "text": "01"}
+        for text_key in ("#text", "text", "@text"):
+            if text_key in val and val[text_key]:
+                return str(val[text_key])
+        return None
+    if isinstance(val, list):
+        parts = []
+        for item in val:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                for text_key in ("#text", "text", "@text"):
+                    if text_key in item and item[text_key]:
+                        parts.append(str(item[text_key]))
+                        break
+        return " ".join(parts) if parts else None
+    return None
+
+
 def _is_first_episode(node: dict) -> bool:
     """
     Determine if this programme represents the first episode.
@@ -89,21 +120,30 @@ def _is_first_episode(node: dict) -> bool:
       <episode>01</episode>
       <episode system="xmltv_ns">0.0</episode>   (season 0, episode 0)
       <episode system="ovtk_epp">01</episode>
+      <episodenumber>1</episodenumber>
     """
-    ep = node.get("episode")
-    if not ep:
+    # Try the "episode" key first
+    ep = _extract_episode_text(node, "episode")
+
+    # Fallback: some XMLTV feeds use "episodenumber"
+    if ep is None:
+        ep = _extract_episode_text(node, "episodenumber")
+
+    # Fallback: some feeds use "season" + "episode" as separate numeric keys
+    if ep is None:
+        season = node.get("season")
+        episode = node.get("episode")
+        if season is not None and episode is not None:
+            ep = f"{season} {episode}"  # We'll handle this below
+
+    if ep is None:
         return False
 
-    # Handle list of episode elements
-    if isinstance(ep, list):
-        for e in ep:
-            if isinstance(e, dict):
-                if _is_first_episode(e):
-                    return True
-            elif isinstance(e, str) and _parse_episode_str(e):
-                return True
-        return False
+    # Check for S01E01 format in the extracted text
+    if isinstance(ep, str) and re.search(r's01\s*e01', ep, re.IGNORECASE):
+        return True
 
+    # Handle numeric formats
     if isinstance(ep, str):
         return _parse_episode_str(ep) is not None
 
@@ -166,8 +206,18 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
             return
 
         titles = _get_text(prog, "title")
-        if not titles or not _is_first_episode(prog):
+        ep_value = _extract_episode_text(prog, "episode") or _extract_episode_text(prog, "episodenumber")
+
+        log.debug("Checking programme: title=%s episode=%s", titles, ep_value)
+
+        if not titles:
+            log.debug("  → skipping: no title")
             return
+        if not _is_first_episode(prog):
+            log.debug("  → skipping: not a first episode")
+            return
+
+        log.debug("  ✓ FIRST EPISODE")
 
         channel = prog.get("@channel", "unknown")
         start_raw = prog.get("@start", "")
@@ -235,6 +285,14 @@ def generate_ics(programmes: list[dict]) -> bytes:
             f"Channel: {prog['channel']}\n"
             f"This is the first episode of this series."
         )
+
+        # 1-hour reminder alarm
+        alarm = Event()
+        alarm.add("summary", "Reminder")
+        alarm.add("action", "DISPLAY")
+        alarm.add("trigger", timedelta(hours=-1))
+        event.add_component(alarm)
+
         cal.add_component(event)
 
     return cal.to_ical()
