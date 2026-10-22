@@ -34,7 +34,7 @@ jobs:
       - name: Set new version in code
         run: >
           sed -i "s/APP_VERSION/${{ github.event.release.name }}/g"
-          ${{ github.workspace }}/index.js
+          ${{ github.workspace }}/app.py
 
       # Install the cosign tool except on PR
       # https://github.com/sigstore/cosign-installer
