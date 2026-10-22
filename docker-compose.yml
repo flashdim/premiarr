@@ -1,0 +1,14 @@
+services:
+  premiarr:
+    image: flashdim/premiarr:latest
+    container_name: premiarr
+    restart: unless-stopped
+    environment:
+      - XMLTV_URL=${XMLTV_URL:-https://example.com/guide.xml}
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-3600}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ICS_PATH=/data/premiere.ics
+    volumes:
+      - ./data:/data
+    ports:
+      - "8001:8000"

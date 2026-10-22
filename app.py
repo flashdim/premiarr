@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""
+premiarr — First-episode calendar notifier.
+
+Monitors an XMLTV guide every hour and updates an ICS calendar
+whenever a show airs its first episode (S01E01, Season 1 Episode 1).
+"""
+
+import os
+import sys
+import re
+import logging
+import hashlib
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from collections import defaultdict
+
+import httpx
+import xmltodict
+from icalendar import Calendar, Event, vDatetime
+from fastapi import FastAPI, Response
+import uvicorn
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+XMLTV_URL: str = os.environ.get("XMLTV_URL", "")
+ICS_PATH: Path = Path(os.environ.get("ICS_PATH", "/data/premiere.ics"))
+CHECK_INTERVAL: int = int(os.environ.get("CHECK_INTERVAL", "3600"))  # seconds
+LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO")
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("premiarr")
+
+# ---------------------------------------------------------------------------
+# HTTP client (connection-pooled, reused)
+# ---------------------------------------------------------------------------
+
+client = httpx.Client(timeout=30.0)
+
+# ---------------------------------------------------------------------------
+# Core logic
+# ---------------------------------------------------------------------------
+
+
+def fetch_xmltv() -> dict | None:
+    """Download and parse the XMLTV feed."""
+    if not XMLTV_URL:
+        log.error("XMLTV_URL is not set")
+        return None
+
+    try:
+        resp = client.get(XMLTV_URL)
+        resp.raise_for_status()
+        return xmltodict.parse(resp.text)
+    except httpx.HTTPError as exc:
+        log.error("Failed to fetch XMLTV: %s", exc)
+        return None
+
+
+def _get_text(node: dict, key: str) -> list[str]:
+    """Extract text values for a key from an XMLTV element."""
+    val = node.get(key)
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(v) for v in val]
+    return [str(val)]
+
+
+def _is_first_episode(node: dict) -> bool:
+    """
+    Determine if this programme represents the first episode.
+
+    Checks multiple XMLTV episode-numbering formats:
+      <episode>01</episode>
+      <episode system="xmltv_ns">0.0</episode>   (season 0, episode 0)
+      <episode system="ovtk_epp">01</episode>
+    """
+    ep = node.get("episode")
+    if not ep:
+        return False
+
+    # Handle list of episode elements
+    if isinstance(ep, list):
+        for e in ep:
+            if isinstance(e, dict):
+                if _is_first_episode(e):
+                    return True
+            elif isinstance(e, str) and _parse_episode_str(e):
+                return True
+        return False
+
+    if isinstance(ep, str):
+        return _parse_episode_str(ep) is not None
+
+    return False
+
+
+def _parse_episode_str(s: str) -> tuple[int, int] | None:
+    """
+    Parse an episode string like '01', '001', 'S01E01', etc.
+    Returns (season, episode) or None if not a first episode.
+    """
+    # Format: S01E01, s01e01
+    match = re.search(r's(\d+)e(\d+)', s, re.IGNORECASE)
+    if match:
+        season = int(match.group(1))
+        episode = int(match.group(2))
+        if season == 1 and episode == 1:
+            return (season, episode)
+        return None
+
+    # Format: just a number like '01' or '001'
+    if re.match(r'^0+1$', s):
+        return (0, 1)
+
+    # Format: xmltv_ns style "0.0" means S01E01
+    if re.match(r'^0+\.0+$', s):
+        return (0, 1)
+
+    return None
+
+
+def extract_first_episodes(xmltv_data: dict) -> list[dict]:
+    """
+    Walk the parsed XMLTV structure and yield programmes that
+    feature a first episode.
+
+    Each yielded dict has: { 'channel', 'title', 'start', 'end', 'programme' }
+    """
+    programmes = []
+
+    def _walk(node):
+        if isinstance(node, dict):
+            # Look for a programme element
+            if "programme" in node:
+                prog = node["programme"]
+                if isinstance(prog, list):
+                    for p in prog:
+                        _check_programme(p)
+                else:
+                    _check_programme(prog)
+            else:
+                for value in node.values():
+                    _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    def _check_programme(prog):
+        if not isinstance(prog, dict):
+            return
+
+        titles = _get_text(prog, "title")
+        if not titles or not _is_first_episode(prog):
+            return
+
+        channel = prog.get("@channel", "unknown")
+        start_raw = prog.get("@start", "")
+        end_raw = prog.get("@stop", "")
+        start = _parse_time(start_raw)
+        end = _parse_time(end_raw)
+
+        title = "; ".join(titles) if isinstance(titles, list) else titles
+
+        programmes.append({
+            "channel": channel,
+            "title": title,
+            "start": start,
+            "end": end,
+            "programme": prog,
+        })
+
+    _walk(xmltv_data)
+    return programmes
+
+
+def _parse_time(raw: str) -> datetime | None:
+    """Parse XMLTV timestamp like '20261022140000 +0300'."""
+    if not raw:
+        return None
+    try:
+        # XMLTV format: YYYYMMDDHHmmss +ZZZZ
+        raw = raw.strip()
+        tz_offset = raw[-5:]
+        dt_part = raw[:-5]
+        dt = datetime.strptime(dt_part, "%Y%m%d%H%M%S")
+        # Apply timezone offset
+        tz_sign = 1 if tz_offset[0] == '+' else -1
+        tz_hours = int(tz_offset[1:3])
+        tz_mins = int(tz_offset[3:5])
+        tz = timezone(timedelta(hours=tz_sign * tz_hours, minutes=tz_sign * tz_mins))
+        return dt.replace(tzinfo=tz)
+    except (ValueError, IndexError):
+        log.warning("Could not parse time: %s", raw)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# ICS generation
+# ---------------------------------------------------------------------------
+
+
+def generate_ics(programmes: list[dict]) -> bytes:
+    """Generate a calendar containing all premiere episodes."""
+    cal = Calendar()
+    cal.add("prodid", "-//premiarr//EN")
+    cal.add("version", "2.0")
+    cal.add("calscale", "GREGORIAN")
+    cal.add("method", "PUBLISH")
+
+    for prog in programmes:
+        event = Event()
+        event.add("summary", f"🎬 Premiere: {prog['title']}")
+        event.add("dtstart", prog["start"])
+        event.add("dtend", prog["end"])
+        event.add("dtstamp", datetime.now(timezone.utc))
+        event.add("uid", f"premiere-{hashlib.md5(str(prog['programme']).encode()).hexdigest()}@premiarr")
+        event.add("category", "TV Premiere")
+        event["description"] = (
+            f"Channel: {prog['channel']}\n"
+            f"This is the first episode of this series."
+        )
+        cal.add_component(event)
+
+    return cal.to_ical()
+
+
+# ---------------------------------------------------------------------------
+# State tracking — only write ICS when content changes
+# ---------------------------------------------------------------------------
+
+_last_hash: str | None = None
+
+
+def write_ics_if_changed(programmes: list[dict]) -> bool:
+    """Write the ICS file only when its content actually changed."""
+    content = generate_ics(programmes)
+    current_hash = hashlib.sha256(content).hexdigest()
+
+    if current_hash == _last_hash:
+        log.debug("ICS content unchanged — skipping write")
+        return False
+
+    ICS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ICS_PATH.write_bytes(content)
+    _last_hash = current_hash
+    log.info("ICS file updated with %d premiere(s)", len(programmes))
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
+
+def run() -> None:
+    """Periodically fetch XMLTV and update the ICS file."""
+    log.info("premiarr starting — polling %s every %ds", XMLTV_URL, CHECK_INTERVAL)
+    log.info("ICS output: %s", ICS_PATH)
+
+    while True:
+        xmltv = fetch_xmltv()
+        if xmltv:
+            programmes = extract_first_episodes(xmltv)
+            if programmes:
+                log.info("Found %d premiere episode(s)", len(programmes))
+                for p in programmes:
+                    log.info(
+                        "  • %s — %s (%s → %s)",
+                        p["channel"],
+                        p["title"],
+                        p["start"],
+                        p["end"],
+                    )
+                write_ics_if_changed(programmes)
+            else:
+                log.debug("No first episodes found in this cycle")
+        else:
+            log.warning("Skipping ICS update due to fetch error")
+
+        # Sleep, allowing clean shutdown on SIGINT
+        import time
+        for _ in range(CHECK_INTERVAL):
+            time.sleep(1)
+
+
+# ---------------------------------------------------------------------------
+# FastAPI server
+# ---------------------------------------------------------------------------
+
+app = FastAPI(title="premiarr", version="0.1.0")
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/calendar.ics")
+def calendar_ics():
+    """Serve the latest ICS calendar."""
+    if not ICS_PATH.exists():
+        return Response(
+            content="No calendar available yet. Waiting for the next cycle.\n",
+            media_type="text/plain",
+            status_code=503,
+        )
+    content = ICS_PATH.read_bytes()
+    return Response(
+        content=content,
+        media_type="text/calendar",
+        headers={
+            "Content-Disposition": f'attachment; filename="premiere.ics"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import signal
+
+    def _handle_signal(signum, _frame):
+        log.info("Received signal %d — shutting down", signum)
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+
+    if "--serve" in sys.argv:
+        # Run as HTTP server only (ICS updated by background task or separate container)
+        log.info("Starting HTTP server on 0.0.0.0:8000")
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    else:
+        # Background update mode (default)
+        run()
