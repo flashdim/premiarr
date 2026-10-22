@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment
+.env
+.env.*
+
+# Data (will be mounted via volume)
+data/
+
+# IDE
+.idea/
+.vscode/
+
+# Misc
+.pytest_cache/
+.mypy_cache/
