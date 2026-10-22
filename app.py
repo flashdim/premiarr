@@ -43,6 +43,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("premiarr")
 
+log.info("premiarr %s starting up", APP_VERSION)
+
 # ---------------------------------------------------------------------------
 # HTTP client (connection-pooled, reused)
 # ---------------------------------------------------------------------------
@@ -300,7 +302,7 @@ def run() -> None:
 # FastAPI server
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="premiarr", version="0.1.0")
+app = FastAPI(title="premiarr", version="${APP_VERSION}")
 
 
 @app.get("/health")
