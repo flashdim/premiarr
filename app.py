@@ -118,28 +118,31 @@ def _is_first_episode(node: dict) -> bool:
 
     Checks multiple XMLTV episode-numbering formats:
       <episode>01</episode>
-      <episode system="xmltv_ns">0.0</episode>   (season 0, episode 0)
+      <episode-num system="xmltv_ns">1.0</episode-num>   (Season 1, Episode 0)
       <episode system="ovtk_epp">01</episode>
       <episodenumber>1</episodenumber>
     """
-    # Try the "episode" key first
-    ep = _extract_episode_text(node, "episode")
-
-    # Fallback: some XMLTV feeds use "episodenumber"
-    if ep is None:
-        ep = _extract_episode_text(node, "episodenumber")
+    # Try the main keys
+    ep = _extract_episode_text(node, "episode") or \
+         _extract_episode_text(node, "episode-num") or \
+         _extract_episode_text(node, "episodenumber")
 
     # Fallback: some feeds use "season" + "episode" as separate numeric keys
     if ep is None:
         season = node.get("season")
         episode = node.get("episode")
         if season is not None and episode is not None:
-            ep = f"{season} {episode}"  # We'll handle this below
+            ep = f"{season} {episode}"
 
     if ep is None:
         return False
 
-    # Check for S01E01 format in the extracted text
+    # Check for the specific pattern: XXX.0. (e.g., 1.0. or 01.0.)
+    # This signifies the first episode of a season in many XMLTV formats.
+    if re.search(r'(\d+)\.0\.?$', ep):
+        return True
+
+    # Check for S01E0[... etc
     if isinstance(ep, str) and re.search(r's01\s*e01', ep, re.IGNORECASE):
         return True
 
