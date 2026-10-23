@@ -5,6 +5,7 @@ services:
     restart: unless-stopped
     environment:
       - XMLTV_URL=${XMLTV_URL:-https://example.com/guide.xml}
+      - CHANNELS=1,2,3
       - CHECK_INTERVAL=${CHECK_INTERVAL:-3600}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ICS_PATH=/data/premiere.ics

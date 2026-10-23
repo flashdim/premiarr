@@ -31,7 +31,6 @@ ICS_PATH: Path = Path(os.environ.get("ICS_PATH", "/data/premiere.ics"))
 CHECK_INTERVAL: int = int(os.environ.get("CHECK_INTERVAL", "3600"))  # seconds
 LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO")
 
-
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -54,6 +53,20 @@ client = httpx.Client(timeout=30.0)
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
+
+# Channel whitelist: comma-separated numbers (e.g., "1,2,5,6,9")
+# If empty, all channels are included.
+_channels_env: str = os.environ.get("CHANNELS", "").strip()
+ALLOWED_CHANNELS: set[str] = (
+    {ch.strip() for ch in _channels_env.split(",") if ch.strip()}
+    if _channels_env
+    else None
+)
+
+if ALLOWED_CHANNELS:
+    log.info("Channel whitelist enabled: %s", sorted(ALLOWED_CHANNELS))
+else:
+    log.info("No channel whitelist — all channels included")
 
 
 def fetch_xmltv() -> dict | None:
@@ -220,9 +233,22 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
             log.debug("  → skipping: not a first episode")
             return
 
-        log.debug("  ✓ FIRST EPISODE")
-
         channel = prog.get("@channel", "unknown")
+        
+        # Extract the channel number from the channel ID (e.g., "C6.54.tunarr.com" → "6")
+        channel_match = re.match(r"C(\d+)", channel)
+        if channel_match:
+            channel_num = channel_match.group(1)
+        else:
+            channel_num = channel  # Use the raw value if no match
+
+        # Check channel whitelist
+        if ALLOWED_CHANNELS and channel_num not in ALLOWED_CHANNELS:
+            log.debug("  → skipping: channel %s not in whitelist", channel_num)
+            return
+
+        log.debug("  ✓ FIRST EPISODE (channel %s)", channel_num)
+
         start_raw = prog.get("@start", "")
         end_raw = prog.get("@stop", "")
         start = _parse_time(start_raw)
@@ -413,6 +439,7 @@ def calendar_ics():
 
 if __name__ == "__main__":
     import signal
+    import threading
 
     def _handle_signal(signum, _frame):
         log.info("Received signal %d — shutting down", signum)
@@ -421,6 +448,11 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    # Run as HTTP server only (ICS updated by background task or separate container)
+    # Start the background poller in a daemon thread
+    poller_thread = threading.Thread(target=run, daemon=True)
+    poller_thread.start()
+    log.info("Background poller started (updates every %ds)", CHECK_INTERVAL)
+
+    # Start the HTTP server (blocking)
     log.info("Starting HTTP server on 0.0.0.0:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)
