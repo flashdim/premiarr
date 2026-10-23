@@ -196,9 +196,30 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
     Walk the parsed XMLTV structure and yield programmes that
     feature a first episode.
 
-    Each yielded dict has: { 'channel', 'title', 'start', 'end', 'programme' }
+    Each yielded dict has: { 'channel', 'title', 'episode', 'description', 'start', 'end', 'programme' }
     """
     programmes = []
+    channelNames = {}
+
+    def _get_channels(xmltv_data):
+        channels = xmltv_data.get('tv', {}).get('channel', [])
+
+        # Handle xmltodict quirk: single channel returns a dict, not a list
+        if isinstance(channels, dict):
+            channels = [channels]
+
+        # Iterate and build the map
+        for ch in channels:
+            ch_id = ch.get('@id')
+            names = ch.get('display-name')
+
+            if ch_id and names:
+                # Ensure names is a list and has at least 3 items
+                if isinstance(names, list) and len(names) >= 3:
+                    channelNames[ch_id] = names[2]
+                elif isinstance(names, str):
+                    # Fallback if there's only one name
+                    channelNames[ch_id] = names
 
     def _walk(node):
         if isinstance(node, dict):
@@ -222,9 +243,29 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
             return
 
         titles = _get_text(prog, "title")
-        ep_value = _extract_episode_text(prog, "episode") or _extract_episode_text(prog, "episodenumber")
+        description = _get_text(prog, "sub-title")
 
-        log.debug("Checking programme: title=%s episode=%s", titles, ep_value)
+        # Extract the S##E## from the episodes (e.g., "S01E01 0.0." → "S01E01")
+        ep_tags = prog.get("episode-num")
+        episode = None
+
+        if ep_tags:
+            # xmltodict can return a single dict, a list of dicts, or a string
+            if isinstance(ep_tags, dict):
+                ep_tags = [ep_tags]
+            elif isinstance(ep_tags, str):
+                # If it's just a string, it's likely the xmltv_ns value without attributes
+                ep_tags = []
+
+            if isinstance(ep_tags, list):
+                for tag in ep_tags:
+                    # Only look for the attribute if it's a dict
+                    if isinstance(tag, dict):
+                        if tag.get("@system") == "onscreen":
+                            episode = tag.get("#text")
+                            break
+
+        log.debug("Checking programme: title=%s episode=%s", titles, episode)
 
         if not titles:
             log.debug("  → skipping: no title")
@@ -249,6 +290,10 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
 
         log.debug("  ✓ FIRST EPISODE (channel %s)", channel_num)
 
+        # Get the channel display name
+
+        channelName = channelNames[channel]
+
         start_raw = prog.get("@start", "")
         end_raw = prog.get("@stop", "")
         start = _parse_time(start_raw)
@@ -261,13 +306,16 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
         title = "; ".join(titles) if isinstance(titles, list) else titles
 
         programmes.append({
-            "channel": channel,
+            "channel": channelName,
             "title": title,
+            "episode" : episode,
+            "description": description,
             "start": start,
             "end": end,
             "programme": prog,
         })
 
+    _get_channels(xmltv_data)
     _walk(xmltv_data)
     return programmes
 
@@ -318,15 +366,14 @@ def generate_ics(programmes: list[dict]) -> bytes:
 
     for prog in programmes:
         event = Event()
-        event.add("summary", f"🎬 Premiere: {prog['title']}")
+        event.add("summary", f"{prog['channel']} - {prog['title']} {prog['episode']}")
         event.add("dtstart", prog["start"])
         event.add("dtend", prog["end"])
         event.add("dtstamp", datetime.now(timezone.utc))
         event.add("uid", f"premiere-{hashlib.md5(str(prog['programme']).encode()).hexdigest()}@premiarr")
         event.add("category", "TV Premiere")
         event["description"] = (
-            f"Channel: {prog['channel']}\n"
-            f"This is the first episode of this series."
+            f"{prog['description']}"
         )
 
         # 1-hour reminder alarm
@@ -383,9 +430,10 @@ def run() -> None:
                 log.info("Found %d premiere episode(s)", len(programmes))
                 for p in programmes:
                     log.info(
-                        "  • %s — %s (%s → %s)",
+                        "  • %s — %s %s (%s → %s)",
                         p["channel"],
                         p["title"],
+                        p["episode"],
                         p["start"],
                         p["end"],
                     )
