@@ -88,10 +88,10 @@ def _get_text(node: dict, key: str) -> list[str]:
     """Extract text values for a key from an XMLTV element."""
     val = node.get(key)
     if val is None:
-        return []
+        return ""
     if isinstance(val, list):
         return [str(v) for v in val]
-    return [str(val)]
+    return str(val)
 
 
 def _extract_episode_text(node: dict, key: str) -> str | None:
