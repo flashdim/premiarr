@@ -427,7 +427,7 @@ def calendar_ics():
         content=content,
         media_type="text/calendar",
         headers={
-            "Content-Disposition": f'attachment; filename="premiere.ics"',
+            "Content-Disposition": f'inline; filename="premiere.ics"',
             "Cache-Control": "no-cache",
         },
     )
