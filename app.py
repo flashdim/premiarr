@@ -324,6 +324,8 @@ _last_hash: str | None = None
 
 def write_ics_if_changed(programmes: list[dict]) -> bool:
     """Write the ICS file only when its content actually changed."""
+    global _last_hash
+    
     content = generate_ics(programmes)
     current_hash = hashlib.sha256(content).hexdigest()
 
