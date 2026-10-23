@@ -440,6 +440,7 @@ def calendar_ics():
 if __name__ == "__main__":
     import signal
     import threading
+    import ssl
 
     def _handle_signal(signum, _frame):
         log.info("Received signal %d — shutting down", signum)
@@ -453,6 +454,15 @@ if __name__ == "__main__":
     poller_thread.start()
     log.info("Background poller started (updates every %ds)", CHECK_INTERVAL)
 
-    # Start the HTTP server (blocking)
-    log.info("Starting HTTP server on 0.0.0.0:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Start the HTTP server with optional SSL
+    ssl_cert = os.environ.get("SSL_CERT", "")
+    ssl_key = os.environ.get("SSL_KEY", "")
+
+    if ssl_cert and ssl_key:
+        log.info("Starting HTTPS server on 0.0.0.0:8000 (TLS enabled)")
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(certfile=ssl_cert, keyfile=ssl_key)
+        uvicorn.run(app, host="0.0.0.0", port=8000, ssl_keyfile=ssl_key, ssl_certfile=ssl_cert)
+    else:
+        log.info("Starting HTTP server on 0.0.0.0:8000 (TLS disabled)")
+        uvicorn.run(app, host="0.0.0.0", port=8000)

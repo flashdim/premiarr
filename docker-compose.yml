@@ -9,7 +9,12 @@ services:
       - CHECK_INTERVAL=${CHECK_INTERVAL:-3600}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ICS_PATH=/data/premiere.ics
+      - SSL_CERT=/certs/flashdim.net.pem
+      - SSL_KEY=/certs/flashdim.net.key
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ./data:/data
+      - /opt/permiarr/certs/flashdim.net.pem:/certs/flashdim.net.pem
+      - /opt/permiarr/certs/flashdim.net.key:/certs/flashdim.net.key
     ports:
       - "8001:8000"
