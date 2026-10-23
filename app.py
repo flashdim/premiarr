@@ -25,7 +25,7 @@ import uvicorn
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION: str = "vAPP_VERSION"
+VERSION: str = "vAPP_VERSION"
 XMLTV_URL: str = os.environ.get("XMLTV_URL", "")
 ICS_PATH: Path = Path(os.environ.get("ICS_PATH", "/data/premiere.ics"))
 CHECK_INTERVAL: int = int(os.environ.get("CHECK_INTERVAL", "3600"))  # seconds
@@ -43,7 +43,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("premiarr")
 
-log.info("premiarr %s starting up", APP_VERSION)
+log.info("premiarr %s starting up", VERSION)
 
 # ---------------------------------------------------------------------------
 # HTTP client (connection-pooled, reused)
@@ -379,7 +379,7 @@ def run() -> None:
 # FastAPI server
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="premiarr", version="${APP_VERSION}")
+app = FastAPI(title="premiarr", version="${VERSION}")
 
 
 @app.get("/health")
