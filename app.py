@@ -421,10 +421,6 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    if "--serve" in sys.argv:
-        # Run as HTTP server only (ICS updated by background task or separate container)
-        log.info("Starting HTTP server on 0.0.0.0:8000")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
-    else:
-        # Background update mode (default)
-        run()
+    # Run as HTTP server only (ICS updated by background task or separate container)
+    log.info("Starting HTTP server on 0.0.0.0:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
