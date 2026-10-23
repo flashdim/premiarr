@@ -251,19 +251,29 @@ def _parse_time(raw: str) -> datetime | None:
     if not raw:
         return None
     try:
-        # XMLTV format: YYYYMMDDHHmmss +ZZZZ
+        # 1. Clean whitespace
         raw = raw.strip()
-        tz_offset = raw[-5:]
-        dt_part = raw[:-5]
-        dt = datetime.strptime(dt_part, "%Y%m%d%H%M%S")
-        # Apply timezone offset
-        tz_sign = 1 if tz_offset[0] == '+' else -1
-        tz_hours = int(tz_offset[1:3])
-        tz_mins = int(tz_offset[3:5])
-        tz = timezone(timedelta(hours=tz_sign * tz_hours, minutes=tz_sign * tz_mins))
-        return dt.replace(tzinfo=tz)
-    except (ValueError, IndexError):
-        log.warning("Could not parse time: %s", raw)
+        
+        # 2. Separate the datetime part from the offset part
+        # XMLTV format: YYYYMMDDHHmmss +ZZZZ
+        # We split by the last space to isolate the offset
+        parts = raw.rsplit(None, 1)
+        dt_str = parts[0]
+        
+        from datetime import datetime, timezone, timedelta
+        dt = datetime.strptime(dt_str, "%Y%m%d%H%M%S")
+        
+        if len(parts) > 1:
+            tz_offset_str = parts[1] # e.g., "+0000"
+            tz_sign = 1 if tz_offset_str[0] == '+' else -1
+            tz_hours = int(tz_offset_str[1:3])
+            tz_mins = int(tz_offset_str[3:5])
+            tz = timezone(timedelta(hours=tz_sign * tz_hours, minutes=tz_sign * tz_mins))
+            return dt.replace(tzinfo=tz)
+            
+        return dt
+    except (ValueError, IndexError, Exception) as e:
+        log.warning("Could not parse time: '%s' - Error: %s", raw, e)
         return None
 
 
