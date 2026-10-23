@@ -196,7 +196,7 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
     Walk the parsed XMLTV structure and yield programmes that
     feature a first episode.
 
-    Each yielded dict has: { 'channel', 'title', 'episode', 'start', 'end', 'programme' }
+    Each yielded dict has: { 'channel', 'title', 'episode', 'description', 'start', 'end', 'programme' }
     """
     programmes = []
 
@@ -222,6 +222,7 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
             return
 
         titles = _get_text(prog, "title")
+        description = _get_text(prog, "sub-title")
 
         # Extract the S##E## from the episodes (e.g., "S01E01 0.0." → "S01E01")
         ep_tags = prog.get("episode-num")
@@ -283,6 +284,7 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
             "channel": channel,
             "title": title,
             "episode" : episode,
+            "description": description,
             "start": start,
             "end": end,
             "programme": prog,
@@ -346,7 +348,7 @@ def generate_ics(programmes: list[dict]) -> bytes:
         event.add("category", "TV Premiere")
         event["description"] = (
             f"Channel: {prog['channel']}\n"
-            f"This is the first episode of this series."
+            f"{prog['description']}"
         )
 
         # 1-hour reminder alarm
