@@ -228,6 +228,10 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
         start = _parse_time(start_raw)
         end = _parse_time(end_raw)
 
+        if start is None or end is None:
+            log.debug("  → skipping: could not parse time (%s → %s)", start, end)
+            return
+
         title = "; ".join(titles) if isinstance(titles, list) else titles
 
         programmes.append({
