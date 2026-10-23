@@ -118,28 +118,31 @@ def _is_first_episode(node: dict) -> bool:
 
     Checks multiple XMLTV episode-numbering formats:
       <episode>01</episode>
-      <episode system="xmltv_ns">0.0</episode>   (season 0, episode 0)
+      <episode-num system="xmltv_ns">1.0</episode-num>   (Season 1, Episode 0)
       <episode system="ovtk_epp">01</episode>
       <episodenumber>1</episodenumber>
     """
-    # Try the "episode" key first
-    ep = _extract_episode_text(node, "episode")
-
-    # Fallback: some XMLTV feeds use "episodenumber"
-    if ep is None:
-        ep = _extract_episode_text(node, "episodenumber")
+    # Try the main keys
+    ep = _extract_episode_text(node, "episode") or \
+         _extract_episode_text(node, "episode-num") or \
+         _extract_episode_text(node, "episodenumber")
 
     # Fallback: some feeds use "season" + "episode" as separate numeric keys
     if ep is None:
         season = node.get("season")
         episode = node.get("episode")
         if season is not None and episode is not None:
-            ep = f"{season} {episode}"  # We'll handle this below
+            ep = f"{season} {episode}"
 
     if ep is None:
         return False
 
-    # Check for S01E01 format in the extracted text
+    # Check for the specific pattern: XXX.0. (e.g., 1.0. or 01.0.)
+    # This signifies the first episode of a season in many XMLTV formats.
+    if re.search(r'(\d+)\.0\.?$', ep):
+        return True
+
+    # Check for S01E0[... etc
     if isinstance(ep, str) and re.search(r's01\s*e01', ep, re.IGNORECASE):
         return True
 
@@ -225,6 +228,10 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
         start = _parse_time(start_raw)
         end = _parse_time(end_raw)
 
+        if start is None or end is None:
+            log.debug("  → skipping: could not parse time (%s → %s)", start, end)
+            return
+
         title = "; ".join(titles) if isinstance(titles, list) else titles
 
         programmes.append({
@@ -244,19 +251,29 @@ def _parse_time(raw: str) -> datetime | None:
     if not raw:
         return None
     try:
-        # XMLTV format: YYYYMMDDHHmmss +ZZZZ
+        # 1. Clean whitespace
         raw = raw.strip()
-        tz_offset = raw[-5:]
-        dt_part = raw[:-5]
-        dt = datetime.strptime(dt_part, "%Y%m%d%H%M%S")
-        # Apply timezone offset
-        tz_sign = 1 if tz_offset[0] == '+' else -1
-        tz_hours = int(tz_offset[1:3])
-        tz_mins = int(tz_offset[3:5])
-        tz = timezone(timedelta(hours=tz_sign * tz_hours, minutes=tz_sign * tz_mins))
-        return dt.replace(tzinfo=tz)
-    except (ValueError, IndexError):
-        log.warning("Could not parse time: %s", raw)
+        
+        # 2. Separate the datetime part from the offset part
+        # XMLTV format: YYYYMMDDHHmmss +ZZZZ
+        # We split by the last space to isolate the offset
+        parts = raw.rsplit(None, 1)
+        dt_str = parts[0]
+        
+        from datetime import datetime, timezone, timedelta
+        dt = datetime.strptime(dt_str, "%Y%m%d%H%M%S")
+        
+        if len(parts) > 1:
+            tz_offset_str = parts[1] # e.g., "+0000"
+            tz_sign = 1 if tz_offset_str[0] == '+' else -1
+            tz_hours = int(tz_offset_str[1:3])
+            tz_mins = int(tz_offset_str[3:5])
+            tz = timezone(timedelta(hours=tz_sign * tz_hours, minutes=tz_sign * tz_mins))
+            return dt.replace(tzinfo=tz)
+            
+        return dt
+    except (ValueError, IndexError, Exception) as e:
+        log.warning("Could not parse time: '%s' - Error: %s", raw, e)
         return None
 
 
@@ -307,6 +324,8 @@ _last_hash: str | None = None
 
 def write_ics_if_changed(programmes: list[dict]) -> bool:
     """Write the ICS file only when its content actually changed."""
+    global _last_hash
+    
     content = generate_ics(programmes)
     current_hash = hashlib.sha256(content).hexdigest()
 
@@ -402,10 +421,6 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    if "--serve" in sys.argv:
-        # Run as HTTP server only (ICS updated by background task or separate container)
-        log.info("Starting HTTP server on 0.0.0.0:8000")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
-    else:
-        # Background update mode (default)
-        run()
+    # Run as HTTP server only (ICS updated by background task or separate container)
+    log.info("Starting HTTP server on 0.0.0.0:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
