@@ -196,7 +196,7 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
     Walk the parsed XMLTV structure and yield programmes that
     feature a first episode.
 
-    Each yielded dict has: { 'channel', 'title', 'start', 'end', 'programme' }
+    Each yielded dict has: { 'channel', 'title', 'episode', 'start', 'end', 'programme' }
     """
     programmes = []
 
@@ -222,9 +222,28 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
             return
 
         titles = _get_text(prog, "title")
-        ep_value = _extract_episode_text(prog, "episode") or _extract_episode_text(prog, "episodenumber")
 
-        log.debug("Checking programme: title=%s episode=%s", titles, ep_value)
+        # Extract the S##E## from the episodes (e.g., "S01E01 0.0." → "S01E01")
+        ep_tags = prog.get("episode-num")
+        episode = None
+
+        if ep_tags:
+            # xmltodict can return a single dict, a list of dicts, or a string
+            if isinstance(ep_tags, dict):
+                ep_tags = [ep_tags]
+            elif isinstance(ep_tags, str):
+                # If it's just a string, it's likely the xmltv_ns value without attributes
+                ep_tags = []
+
+            if isinstance(ep_tags, list):
+                for tag in ep_tags:
+                    # Only look for the attribute if it's a dict
+                    if isinstance(tag, dict):
+                        if tag.get("@system") == "onscreen":
+                            episode = tag.get("#text")
+                            break
+
+        log.debug("Checking programme: title=%s episode=%s", titles, episode)
 
         if not titles:
             log.debug("  → skipping: no title")
@@ -263,6 +282,7 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
         programmes.append({
             "channel": channel,
             "title": title,
+            "episode" : episode,
             "start": start,
             "end": end,
             "programme": prog,
@@ -318,7 +338,7 @@ def generate_ics(programmes: list[dict]) -> bytes:
 
     for prog in programmes:
         event = Event()
-        event.add("summary", f"🎬 Premiere: {prog['title']}")
+        event.add("summary", f"🎬 {prog['title']} {prog['episode']}")
         event.add("dtstart", prog["start"])
         event.add("dtend", prog["end"])
         event.add("dtstamp", datetime.now(timezone.utc))
@@ -383,9 +403,10 @@ def run() -> None:
                 log.info("Found %d premiere episode(s)", len(programmes))
                 for p in programmes:
                     log.info(
-                        "  • %s — %s (%s → %s)",
+                        "  • %s — %s %s (%s → %s)",
                         p["channel"],
                         p["title"],
+                        p["episode"],
                         p["start"],
                         p["end"],
                     )
