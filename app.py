@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-premiarr — First-episode calendar notifier.
-
-Monitors an XMLTV guide every hour and updates an ICS calendar
-whenever a show airs its first episode (S01E01, Season 1 Episode 1).
-"""
 
 import os
 import sys
@@ -88,10 +82,10 @@ def _get_text(node: dict, key: str) -> list[str]:
     """Extract text values for a key from an XMLTV element."""
     val = node.get(key)
     if val is None:
-        return []
+        return ""
     if isinstance(val, list):
         return [str(v) for v in val]
-    return [str(val)]
+    return str(val)
 
 
 def _extract_episode_text(node: dict, key: str) -> str | None:
@@ -126,15 +120,6 @@ def _extract_episode_text(node: dict, key: str) -> str | None:
 
 
 def _is_first_episode(node: dict) -> bool:
-    """
-    Determine if this programme represents the first episode.
-
-    Checks multiple XMLTV episode-numbering formats:
-      <episode>01</episode>
-      <episode-num system="xmltv_ns">1.0</episode-num>   (Season 1, Episode 0)
-      <episode system="ovtk_epp">01</episode>
-      <episodenumber>1</episodenumber>
-    """
     # Try the main keys
     ep = _extract_episode_text(node, "episode") or \
          _extract_episode_text(node, "episode-num") or \
@@ -167,10 +152,6 @@ def _is_first_episode(node: dict) -> bool:
 
 
 def _parse_episode_str(s: str) -> tuple[int, int] | None:
-    """
-    Parse an episode string like '01', '001', 'S01E01', etc.
-    Returns (season, episode) or None if not a first episode.
-    """
     # Format: S01E01, s01e01
     match = re.search(r's(\d+)e(\d+)', s, re.IGNORECASE)
     if match:
@@ -192,12 +173,6 @@ def _parse_episode_str(s: str) -> tuple[int, int] | None:
 
 
 def extract_first_episodes(xmltv_data: dict) -> list[dict]:
-    """
-    Walk the parsed XMLTV structure and yield programmes that
-    feature a first episode.
-
-    Each yielded dict has: { 'channel', 'title', 'episode', 'description', 'start', 'end', 'programme' }
-    """
     programmes = []
     channelNames = {}
 
@@ -321,7 +296,6 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
 
 
 def _parse_time(raw: str) -> datetime | None:
-    """Parse XMLTV timestamp like '20261022140000 +0300'."""
     if not raw:
         return None
     try:
@@ -357,7 +331,6 @@ def _parse_time(raw: str) -> datetime | None:
 
 
 def generate_ics(programmes: list[dict]) -> bytes:
-    """Generate a calendar containing all premiere episodes."""
     cal = Calendar()
     cal.add("prodid", "-//premiarr//EN")
     cal.add("version", "2.0")
@@ -396,7 +369,6 @@ _last_hash: str | None = None
 
 
 def write_ics_if_changed(programmes: list[dict]) -> bool:
-    """Write the ICS file only when its content actually changed."""
     global _last_hash
     
     content = generate_ics(programmes)
@@ -418,7 +390,6 @@ def write_ics_if_changed(programmes: list[dict]) -> bool:
 # ---------------------------------------------------------------------------
 
 def run() -> None:
-    """Periodically fetch XMLTV and update the ICS file."""
     log.info("premiarr starting — polling %s every %ds", XMLTV_URL, CHECK_INTERVAL)
     log.info("ICS output: %s", ICS_PATH)
 
