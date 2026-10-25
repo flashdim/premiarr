@@ -17,15 +17,15 @@ By default it checks all seasons, but can be limited to Season 1.
 
 ## Configuration
 
-| Environment Variable   | Default                      | Description                                |
-|------------------------|------------------------------|--------------------------------------------|
-| `XMLTV_URL`            | *(required)*                 | URL of the XMLTV programming guide         |
-| `CHECK_INTERVAL`       | `3600`                       | Seconds between XMLTV polls                |
-| `LOG_LEVEL`            | `INFO`                       | Python logging level                       |
-| `ICS_PATH`             | `/data/premiere.ics`         | Output path for the ICS calendar file      |
-| `SEASON_ONE_ONLY`      | false                        | Only grab Season 1 premieres               |
-| `SSL_CERT`             | None                         | SSL cert PEM                               |
-| `SSL_KEY`              | None                         | SSL cert key                               |
+| Environment Variable   | Default                 | Required?    | Description                                |
+|------------------------|-------------------------|--------------|--------------------------------------------|
+| `XMLTV_URL`            | None                    | Yes          | URL of the XMLTV programming guide         |
+| `CHECK_INTERVAL`       | `3600`                  | No           | Seconds between XMLTV polls                |
+| `LOG_LEVEL`            | `INFO`                  | No           | Python logging level                       |
+| `ICS_PATH`             | `/data/premiere.ics`    | No           | Output path for the ICS calendar file      |
+| `SEASON_ONE_ONLY`      | false                   | No           | Only grab Season 1 premieres               |
+| `SSL_CERT`             | None                    | No           | SSL cert PEM                               |
+| `SSL_KEY`              | None                    | No           | SSL cert key                               |
 
 ## Quick Start
 

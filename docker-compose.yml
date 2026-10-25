@@ -15,7 +15,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./data:/data
-      - /opt/permiarr/certs/flashdim.net.pem:/certs/flashdim.net.pem
-      - /opt/permiarr/certs/flashdim.net.key:/certs/flashdim.net.key
+      - /opt/permiarr/certs/cert.pem:/certs/cert.pem
+      - /opt/permiarr/certs/cert.key:/certs/cert.key
     ports:
       - "8001:8000"
