@@ -1,4 +1,4 @@
-xmltodict>=0.13.0
+xmltodict>=1.0.4
 fastapi>=0.159.1
 icalendar>=7.3.0
 uvicorn>=0.54.0
