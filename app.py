@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-premiarr — First-episode calendar notifier.
-
-Monitors an XMLTV guide every hour and updates an ICS calendar
-whenever a show airs its first episode (S01E01, Season 1 Episode 1).
-"""
 
 import os
 import sys
@@ -84,33 +78,20 @@ def fetch_xmltv() -> dict | None:
         return None
 
 
-def _get_text(node: dict, key: str) -> list[str]:
-    """Extract text values for a key from an XMLTV element."""
-    val = node.get(key)
-    if val is None:
-        return []
-    if isinstance(val, list):
-        return [str(v) for v in val]
-    return [str(val)]
-
-
-def _extract_episode_text(node: dict, key: str) -> str | None:
+def _get_xml_text(node: dict, key: str, as_list: bool = False) -> str | list[str] | None:
     """
-    Extract text from a node that may be a plain string,
-    a dict with #text/@text, or a list of mixed types.
+    Extract text from an XML node. Handles strings, dicts (with #text), and lists.
     """
-    val = node.get(key)
-    if val is None:
+    if not isinstance(node, dict):
         return None
+    
+    val = node.get(key)
+    if val is None:
+        return [] if as_list else None
+
     if isinstance(val, str):
-        return val
-    if isinstance(val, dict):
-        # xmltodict parses <episode system="...">01</episode> as
-        # {"#text": "01", "@system": "..."} or {"@system": "...", "text": "01"}
-        for text_key in ("#text", "text", "@text"):
-            if text_key in val and val[text_key]:
-                return str(val[text_key])
-        return None
+        return [val] if as_list else val
+
     if isinstance(val, list):
         parts = []
         for item in val:
@@ -121,24 +102,23 @@ def _extract_episode_text(node: dict, key: str) -> str | None:
                     if text_key in item and item[text_key]:
                         parts.append(str(item[text_key]))
                         break
-        return " ".join(parts) if parts else None
+        return parts if as_list else (" ".join(parts) if parts else None)
+
+    if isinstance(val, dict):
+        for text_key in ("#text", "text", "@text"):
+            if text_key in val and val[text_key]:
+                res = str(val[text_key])
+                return [res] if as_list else res
+        return None
+
     return None
 
 
 def _is_first_episode(node: dict) -> bool:
-    """
-    Determine if this programme represents the first episode.
-
-    Checks multiple XMLTV episode-numbering formats:
-      <episode>01</episode>
-      <episode-num system="xmltv_ns">1.0</episode-num>   (Season 1, Episode 0)
-      <episode system="ovtk_epp">01</episode>
-      <episodenumber>1</episodenumber>
-    """
     # Try the main keys
-    ep = _extract_episode_text(node, "episode") or \
-         _extract_episode_text(node, "episode-num") or \
-         _extract_episode_text(node, "episodenumber")
+    ep = _get_xml_text(node, "episode") or \
+         _get_xml_text(node, "episode-num") or \
+         _get_xml_text(node, "episodenumber")
 
     # Fallback: some feeds use "season" + "episode" as separate numeric keys
     if ep is None:
@@ -167,10 +147,6 @@ def _is_first_episode(node: dict) -> bool:
 
 
 def _parse_episode_str(s: str) -> tuple[int, int] | None:
-    """
-    Parse an episode string like '01', '001', 'S01E01', etc.
-    Returns (season, episode) or None if not a first episode.
-    """
     # Format: S01E01, s01e01
     match = re.search(r's(\d+)e(\d+)', s, re.IGNORECASE)
     if match:
@@ -192,12 +168,6 @@ def _parse_episode_str(s: str) -> tuple[int, int] | None:
 
 
 def extract_first_episodes(xmltv_data: dict) -> list[dict]:
-    """
-    Walk the parsed XMLTV structure and yield programmes that
-    feature a first episode.
-
-    Each yielded dict has: { 'channel', 'title', 'episode', 'description', 'start', 'end', 'programme' }
-    """
     programmes = []
     channelNames = {}
 
@@ -242,8 +212,8 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
         if not isinstance(prog, dict):
             return
 
-        titles = _get_text(prog, "title")
-        description = _get_text(prog, "sub-title")
+        titles = _get_xml_text(prog, "title")
+        description = _get_xml_text(prog, "sub-title")
 
         # Extract the S##E## from the episodes (e.g., "S01E01 0.0." → "S01E01")
         ep_tags = prog.get("episode-num")
@@ -321,7 +291,6 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
 
 
 def _parse_time(raw: str) -> datetime | None:
-    """Parse XMLTV timestamp like '20261022140000 +0300'."""
     if not raw:
         return None
     try:
@@ -357,7 +326,6 @@ def _parse_time(raw: str) -> datetime | None:
 
 
 def generate_ics(programmes: list[dict]) -> bytes:
-    """Generate a calendar containing all premiere episodes."""
     cal = Calendar()
     cal.add("prodid", "-//premiarr//EN")
     cal.add("version", "2.0")
@@ -396,7 +364,6 @@ _last_hash: str | None = None
 
 
 def write_ics_if_changed(programmes: list[dict]) -> bool:
-    """Write the ICS file only when its content actually changed."""
     global _last_hash
     
     content = generate_ics(programmes)
@@ -418,7 +385,6 @@ def write_ics_if_changed(programmes: list[dict]) -> bool:
 # ---------------------------------------------------------------------------
 
 def run() -> None:
-    """Periodically fetch XMLTV and update the ICS file."""
     log.info("premiarr starting — polling %s every %ds", XMLTV_URL, CHECK_INTERVAL)
     log.info("ICS output: %s", ICS_PATH)
 
