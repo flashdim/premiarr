@@ -3,6 +3,7 @@
 First-episode calendar notifier for TV shows.
 
 Monitors an XMLTV programming guide every hour and updates an ICS calendar whenever a show airs its first episode (S01E01, Season 1 Episode 1, etc.).
+By default it checks all seasons, but can be limited to Season 1.
 
 ## Features
 
