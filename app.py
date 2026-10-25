@@ -78,33 +78,20 @@ def fetch_xmltv() -> dict | None:
         return None
 
 
-def _get_text(node: dict, key: str) -> list[str]:
-    """Extract text values for a key from an XMLTV element."""
-    val = node.get(key)
-    if val is None:
-        return ""
-    if isinstance(val, list):
-        return [str(v) for v in val]
-    return str(val)
-
-
-def _extract_episode_text(node: dict, key: str) -> str | None:
+def _get_xml_text(node: dict, key: str, as_list: bool = False) -> str | list[str] | None:
     """
-    Extract text from a node that may be a plain string,
-    a dict with #text/@text, or a list of mixed types.
+    Extract text from an XML node. Handles strings, dicts (with #text), and lists.
     """
-    val = node.get(key)
-    if val is None:
+    if not isinstance(node, dict):
         return None
+    
+    val = node.get(key)
+    if val is None:
+        return [] if as_list else None
+
     if isinstance(val, str):
-        return val
-    if isinstance(val, dict):
-        # xmltodict parses <episode system="...">01</episode> as
-        # {"#text": "01", "@system": "..."} or {"@system": "...", "text": "01"}
-        for text_key in ("#text", "text", "@text"):
-            if text_key in val and val[text_key]:
-                return str(val[text_key])
-        return None
+        return [val] if as_list else val
+
     if isinstance(val, list):
         parts = []
         for item in val:
@@ -115,15 +102,23 @@ def _extract_episode_text(node: dict, key: str) -> str | None:
                     if text_key in item and item[text_key]:
                         parts.append(str(item[text_key]))
                         break
-        return " ".join(parts) if parts else None
+        return parts if as_list else (" ".join(parts) if parts else None)
+
+    if isinstance(val, dict):
+        for text_key in ("#text", "text", "@text"):
+            if text_key in val and val[text_key]:
+                res = str(val[text_key])
+                return [res] if as_list else res
+        return None
+
     return None
 
 
 def _is_first_episode(node: dict) -> bool:
     # Try the main keys
-    ep = _extract_episode_text(node, "episode") or \
-         _extract_episode_text(node, "episode-num") or \
-         _extract_episode_text(node, "episodenumber")
+    ep = _get_xml_text(node, "episode") or \
+         _get_xml_text(node, "episode-num") or \
+         _get_xml_text(node, "episodenumber")
 
     # Fallback: some feeds use "season" + "episode" as separate numeric keys
     if ep is None:
@@ -217,8 +212,8 @@ def extract_first_episodes(xmltv_data: dict) -> list[dict]:
         if not isinstance(prog, dict):
             return
 
-        titles = _get_text(prog, "title")
-        description = _get_text(prog, "sub-title")
+        titles = _get_xml_text(prog, "title")
+        description = _get_xml_text(prog, "sub-title")
 
         # Extract the S##E## from the episodes (e.g., "S01E01 0.0." → "S01E01")
         ep_tags = prog.get("episode-num")
