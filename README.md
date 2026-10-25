@@ -8,6 +8,7 @@ Monitors an XMLTV programming guide every hour and updates an ICS calendar whene
 
 - Polls any XMLTV guide on a configurable interval (default: hourly)
 - Detects first episodes across multiple numbering formats (`01`, `001`, `S01E01`, `s01e01`, xmltv_ns `0.0`, etc.)
+- Detects first episodes across seasons by default (can be changed with `SEASON_ONE_ONLY` flag)
 - Writes a single `.ics` file with premiere events
 - Serves the calendar via HTTP (`/calendar.ics`) for easy subscription
 - Only writes the ICS file when content actually changes (avoids unnecessary syncs)
@@ -17,10 +18,13 @@ Monitors an XMLTV programming guide every hour and updates an ICS calendar whene
 
 | Environment Variable   | Default                      | Description                                |
 |------------------------|------------------------------|--------------------------------------------|
-| `XMLTV_URL`           | *(required)*                 | URL of the XMLTV programming guide         |
-| `CHECK_INTERVAL`      | `3600`                       | Seconds between XMLTV polls                |
-| `LOG_LEVEL`           | `INFO`                       | Python logging level                       |
-| `ICS_PATH`            | `/data/premiere.ics`        | Output path for the ICS calendar file      |
+| `XMLTV_URL`            | *(required)*                 | URL of the XMLTV programming guide         |
+| `CHECK_INTERVAL`       | `3600`                       | Seconds between XMLTV polls                |
+| `LOG_LEVEL`            | `INFO`                       | Python logging level                       |
+| `ICS_PATH`             | `/data/premiere.ics`         | Output path for the ICS calendar file      |
+| `SEASON_ONE_ONLY`      | false                        | Only grab Season 1 premieres               |
+| `SSL_CERT`             | None                         | SSL cert PEM                               |
+| `SSL_KEY`              | None                         | SSL cert key                               |
 
 ## Quick Start
 

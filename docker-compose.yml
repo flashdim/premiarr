@@ -9,8 +9,9 @@ services:
       - CHECK_INTERVAL=${CHECK_INTERVAL:-3600}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ICS_PATH=/data/premiere.ics
-      - SSL_CERT=/certs/flashdim.net.pem
-      - SSL_KEY=/certs/flashdim.net.key
+      - SEASON_ONE_ONLY=${SEASON_ONE_ONLY:false}
+      - SSL_CERT=/certs/cert.pem
+      - SSL_KEY=/certs/cert.key
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./data:/data

@@ -24,6 +24,7 @@ XMLTV_URL: str = os.environ.get("XMLTV_URL", "")
 ICS_PATH: Path = Path(os.environ.get("ICS_PATH", "/data/premiere.ics"))
 CHECK_INTERVAL: int = int(os.environ.get("CHECK_INTERVAL", "3600"))  # seconds
 LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO")
+SEASON_ONE_ONLY: bool = os.environ.get("SEASON_ONE_ONLY", "").lower() == "true"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -133,11 +134,24 @@ def _is_first_episode(node: dict) -> bool:
     # Check for the specific pattern: XXX.0. (e.g., 1.0. or 01.0.)
     # This signifies the first episode of a season in many XMLTV formats.
     if re.search(r'(\d+)\.0\.?$', ep):
-        return True
+        if SEASON_ONE_ONLY:
+            season_match = re.match(r'^0\.', ep)
+            if season_match and (int(season_match.group(1)) == 0):
+                log.debug("  ✔ Is 0.0. episode")
+                return True
+        else:
+            log.debug("  ✔ Is #.0. episode")
+            return True
 
     # Check for S01E0[... etc
-    if isinstance(ep, str) and re.search(r's01\s*e01', ep, re.IGNORECASE):
-        return True
+    if isinstance(ep, str) and re.search(r's(\d+)\s*e01', ep, re.IGNORECASE):
+        if SEASON_ONE_ONLY:
+            if re.match(r'^S01\.', ep):
+                log.debug("  ✔ Is S01E01 episode")
+                return True
+        else:
+            log.debug("  ✔ Is S##E01 episode")
+            return True
 
     # Handle numeric formats
     if isinstance(ep, str):
